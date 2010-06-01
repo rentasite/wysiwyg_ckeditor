@@ -1,0 +1,93 @@
+<?php
+
+/**
+ * Implementation of hook_install().
+ */
+function wysiwyg_ckeditor_install() {
+  $role = 'wysiwyg';
+  //FIXME: must be detected by filter name
+  $format = 2; // input format
+  $editor = 'ckeditor';
+
+  // add 'wysiwyg' role
+  //TODO: maybe check if role already exists?
+  db_query("INSERT INTO {role} (name) VALUES ('%s')", $role);
+  $role_id = db_last_insert_id('role', 'rid');
+
+  // assign 'wysiwyg' role to the full-html input format
+  db_query("UPDATE {filter_formats} SET roles = ',%s,' WHERE format = %d", $role_id, $format);
+
+  // reset current full-html filters
+  db_query("DELETE FROM {filters} WHERE format = %d", $format);
+  // add url filter
+  db_query("INSERT INTO {filters} (format, module, delta, weight) VALUES (%d, '%s', %d, %d)", $format, 'filter', 2, 0);
+  // add htmlpurifier
+  db_query("INSERT INTO {filters} (format, module, delta, weight) VALUES (%d, '%s', %d, %d)", $format, 'htmlpurifier', 0, 10);
+  cache_clear_all($format .':', 'cache_filter', TRUE);
+
+  // use ckeditor for the full html filter
+  if (!function_exists('wysiwyg_get_profile')) {
+    module_load_include('module', 'wysiwyg');
+  }
+  if (!($profile = wysiwyg_get_profile($format))) {
+    $settings = array(
+      'default'                     => 1,
+      'user_choose'                 => 0,
+      'show_toggle'                 => 1,
+      'theme'                       => 'kama',
+      'language'                    => 'en',
+      'buttons'                     => array(),
+      'toolbar_loc'                 => 'top',
+      'toolbar_align'               => 'left',
+      'path_loc'                    => 'bottom',
+      'resizing'                    => 1,
+      'verify_html'                 => 0,
+      'preformatted'                => 0,
+      'convert_fonts_to_spans'      => 1,
+      'remove_linebreaks'           => 1,
+      'apply_source_formatting'     => 0,
+      'paste_auto_cleanup_on_paste' => 0,
+      'block_formats'               => 'p,address,pre,h2,h3,h4,h5,h6,div',
+      'css_setting'                 => 'none',
+      'css_path'                    => '',
+      'css_classes'                 => '',
+    );
+    db_query("INSERT INTO {wysiwyg} (format, editor, settings) values (%d, '%s', '%s')", $format, $editor, serialize($settings));
+  }
+
+  // IMCE profile for trusted users
+  $user_profile = array(
+    'name'        => 'Users',
+    'extensions'  => 'gif png jpg jpeg doc docx rtf txt xls csv odt ods pdf',
+    'directories' => array(
+      array(
+        'name' => 'users/u%uid',
+        'subnav' => 1,
+        'browse' => 1,
+        'upload' => 1,
+        'thumb'  => 1,
+        'delete' => 1,
+        'resize' => 1,
+      ),
+      array(
+        'name'   => 'users/pub',
+        'subnav' => 0,
+        'browse' => 1,
+        'upload' => 1,
+        'thumb'  => 1,
+        'delete' => 0,
+        'resize' => 1,
+      ),
+    ),
+  );
+  $imce_profiles = variable_get('imce_profiles', array());
+  $imce_pid = count($imce_profiles)+1;
+  $imce_profiles[$imce_pid] = array_merge($imce_profiles[1],$user_profile);
+  variable_set('imce_profiles', $imce_profiles);
+
+  // assign wysiwyg role to IMCE profile
+  $imce_roles_profiles = variable_get('imce_roles_profiles', array());
+  $imce_roles_profiles[$role_id] = array('pid' => $imce_pid, weight => 0);
+  variable_set('imce_roles_profiles', $imce_roles_profiles);
+}
+
